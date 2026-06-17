@@ -1,0 +1,55 @@
+{
+  "updatedAt": "2026-06-16",
+  "snapshot": [
+    { "label": "USD / IDR", "value": "16,315", "note": "Close" },
+    { "label": "BI rate", "value": "6.25%", "note": "Latest decision" },
+    { "label": "IHSG", "value": "7,214", "note": "Index level" },
+    { "label": "Inflation", "value": "2.84%", "note": "YoY" }
+  ],
+  "metrics": [
+    { "label": "USD / IDR", "value": "16,315", "delta": "-1.4% MoM", "tone": "down" },
+    { "label": "BI rate", "value": "6.25%", "delta": "Flat vs prior meeting", "tone": "flat" },
+    { "label": "IHSG", "value": "7,214", "delta": "+2.1% MoM", "tone": "up" },
+    { "label": "Inflation", "value": "2.84%", "delta": "Inside target band", "tone": "up" }
+  ],
+  "series": {
+    "fx": [
+      ["2026-01-02", 16240],
+      ["2026-02-02", 16395],
+      ["2026-03-03", 16420],
+      ["2026-04-01", 16335],
+      ["2026-05-01", 16195],
+      ["2026-06-16", 16315]
+    ],
+    "rate": [
+      ["2026-01-01", 6.25],
+      ["2026-02-01", 6.25],
+      ["2026-03-01", 6.25],
+      ["2026-04-01", 6.25],
+      ["2026-05-01", 6.25],
+      ["2026-06-01", 6.25]
+    ],
+    "ihsg": [
+      ["2026-01-02", 7110],
+      ["2026-02-02", 7044],
+      ["2026-03-03", 7188],
+      ["2026-04-01", 7058],
+      ["2026-05-01", 7069],
+      ["2026-06-16", 7214]
+    ],
+    "inflation": [
+      ["2026-01-01", 2.61],
+      ["2026-02-01", 2.48],
+      ["2026-03-01", 2.73],
+      ["2026-04-01", 2.66],
+      ["2026-05-01", 2.79],
+      ["2026-06-01", 2.84]
+    ]
+  },
+  "insights": [
+    "Rupiah stayed broadly stable, with the latest move still contained inside the recent trading range.",
+    "Policy remains on hold, which keeps the market focused on inflation surprises and U.S. rate expectations.",
+    "IHSG recovered into mid-June after a softer early-quarter patch, suggesting a modest risk-on tone.",
+    "Inflation is still comfortably inside the target band, reducing immediate pressure on BI to tighten again."
+  ]
+}
