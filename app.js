@@ -102,8 +102,22 @@ const FX_RANGE_MAP = {
   "1y": 366,
 };
 
+// Maps each UI range to the actual Yahoo Finance query params needed to pull
+// that much real history. Without this, every range button just re-filtered
+// whatever fixed "1mo" window was already fetched, so 3M/1Y never showed
+// more data than 1M did.
+const YAHOO_RANGE_MAP = {
+  "1w": { range: "5d", interval: "1d" },
+  "1m": { range: "1mo", interval: "1d" },
+  "3m": { range: "3mo", interval: "1d" },
+  "1y": { range: "1y", interval: "1d" },
+};
+
 let currentFxRange = "1m";
+let currentFxSymbol = null;
+const fxRangeCache = new Map();
 let priceAlertThreshold = null;
+let priceAlertNotified = false;
 let latestDashboardData = null;
 
 function parseYahooChartResponse(payload) {
@@ -175,14 +189,17 @@ async function loadDashboardData() {
     }
 
     const data = await response.json();
+    const fxParams = YAHOO_RANGE_MAP[currentFxRange] || YAHOO_RANGE_MAP["1m"];
     const [fxMirror, ihsgMirror] = await Promise.all([
-      fetchFirstAvailableSeries(SOURCE_CONFIG.fx.symbols, "1mo", "1d"),
+      fetchFirstAvailableSeries(SOURCE_CONFIG.fx.symbols, fxParams.range, fxParams.interval),
       fetchFirstAvailableSeries(SOURCE_CONFIG.ihsg.symbols, "1mo", "1d"),
     ]);
 
     const sourceNotes = [];
 
     if (fxMirror?.series) {
+      currentFxSymbol = fxMirror.symbol;
+      fxRangeCache.set(currentFxRange, fxMirror.series);
       data.series.fx = fxMirror.series;
       data.snapshot[0] = {
         ...data.snapshot[0],
@@ -440,6 +457,30 @@ function filterSeriesByRange(series, range) {
   return filtered.length > 1 ? filtered : series.slice(-Math.min(series.length, 3));
 }
 
+// Used when the user clicks a range button. Tries to pull real history for
+// that exact window from the live mirror first (cached after the first
+// fetch); only falls back to day-filtering the in-memory series (sample data
+// or whatever was last fetched) if a live fetch isn't available.
+async function fetchFxSeriesForRange(range) {
+  if (fxRangeCache.has(range)) {
+    return fxRangeCache.get(range);
+  }
+
+  const params = YAHOO_RANGE_MAP[range] || YAHOO_RANGE_MAP["1m"];
+  const symbolsToTry = currentFxSymbol
+    ? [currentFxSymbol, ...SOURCE_CONFIG.fx.symbols]
+    : SOURCE_CONFIG.fx.symbols;
+
+  const mirror = await fetchFirstAvailableSeries(symbolsToTry, params.range, params.interval);
+  if (mirror?.series) {
+    currentFxSymbol = mirror.symbol;
+    fxRangeCache.set(range, mirror.series);
+    return mirror.series;
+  }
+
+  return null;
+}
+
 function updateRangeButtons() {
   document.querySelectorAll("#range-selector .range-button").forEach((button) => {
     button.classList.toggle("active", button.dataset.range === currentFxRange);
@@ -455,6 +496,43 @@ function setPriceAlertStatus(message, statusClass = "") {
   status.className = `price-alert-status ${statusClass}`.trim();
 }
 
+function ensureNotificationPermission() {
+  if (typeof Notification === "undefined") {
+    return;
+  }
+  if (Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+}
+
+// Fires a real notification the moment the alert flips from "not triggered"
+// to "triggered", instead of just relying on someone reading the status
+// text on the page. Only fires once per crossing so it doesn't spam every
+// 60s refresh while the price stays above the threshold.
+function maybeNotifyPriceAlert(triggered) {
+  if (!triggered) {
+    priceAlertNotified = false;
+    return;
+  }
+
+  if (priceAlertNotified) {
+    return;
+  }
+  priceAlertNotified = true;
+
+  const message = `USD/IDR reached your alert level of IDR ${formatters.currency.format(priceAlertThreshold)}.`;
+
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+    new Notification("rupiah-macro price alert", { body: message });
+  }
+
+  const status = document.getElementById("price-alert-status");
+  if (status) {
+    status.classList.add("flash");
+    setTimeout(() => status.classList.remove("flash"), 4000);
+  }
+}
+
 function savePriceAlert(threshold) {
   priceAlertThreshold = threshold;
   window.localStorage.setItem("fxPriceAlertThreshold", String(threshold));
@@ -462,6 +540,7 @@ function savePriceAlert(threshold) {
 
 function clearPriceAlertValue() {
   priceAlertThreshold = null;
+  priceAlertNotified = false;
   window.localStorage.removeItem("fxPriceAlertThreshold");
   const input = document.getElementById("price-alert-input");
   if (input) {
@@ -484,12 +563,14 @@ function loadSavedPriceAlert() {
 function updatePriceAlertStatus(latestPrice) {
   if (!priceAlertThreshold) {
     setPriceAlertStatus("No alert set.");
+    priceAlertNotified = false;
     return;
   }
 
   const formattedThreshold = formatters.currency.format(priceAlertThreshold);
   const formattedPrice = formatters.currency.format(latestPrice);
   const triggered = latestPrice >= priceAlertThreshold;
+  maybeNotifyPriceAlert(triggered);
   if (triggered) {
     setPriceAlertStatus(`Alert triggered at IDR ${formattedPrice} (threshold IDR ${formattedThreshold})`, "triggered");
   } else {
@@ -605,6 +686,8 @@ async function refreshDashboard() {
     return; // don't burn requests on a backgrounded tab
   }
 
+  fxRangeCache.clear();
+
   let data;
   try {
     data = await loadDashboardData();
@@ -638,20 +721,35 @@ function startAutoRefresh() {
 
 function wireDashboardControls() {
   document.querySelectorAll("#range-selector .range-button").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const range = button.dataset.range;
       if (!range || range === currentFxRange) {
         return;
       }
       currentFxRange = range;
       updateRangeButtons();
-      if (latestDashboardData) {
-        renderFxChart(document.getElementById("fx-chart"), latestDashboardData.series.fx, {
-          ariaLabel: "IDR to USD exchange rate series",
-          stroke: "#b35c2e",
-          fill: "rgba(179, 92, 46, 0.45)",
-          formatValue: (value) => `IDR ${formatters.currency.format(value)}`,
-        });
+
+      const fxChartEl = document.getElementById("fx-chart");
+      const fxOptions = {
+        ariaLabel: "IDR to USD exchange rate series",
+        stroke: "#b35c2e",
+        fill: "rgba(179, 92, 46, 0.45)",
+        formatValue: (value) => `IDR ${formatters.currency.format(value)}`,
+      };
+
+      let seriesForRange = null;
+      try {
+        seriesForRange = await fetchFxSeriesForRange(range);
+      } catch (error) {
+        console.warn("Live range fetch failed, falling back to cached series", error);
+      }
+
+      if (seriesForRange) {
+        renderSparkline(fxChartEl, seriesForRange, fxOptions);
+        renderMeta(document.getElementById("fx-meta"), seriesForRange);
+        updatePriceAlertStatus(seriesForRange.at(-1)[1]);
+      } else if (latestDashboardData) {
+        renderFxChart(fxChartEl, latestDashboardData.series.fx, fxOptions);
       }
     });
   });
@@ -669,6 +767,8 @@ function wireDashboardControls() {
         return;
       }
       savePriceAlert(value);
+      priceAlertNotified = false;
+      ensureNotificationPermission();
       if (latestDashboardData) {
         updatePriceAlertStatus(latestDashboardData.series.fx.at(-1)[1]);
       }

@@ -359,6 +359,20 @@ h1 {
   color: var(--accent-3);
 }
 
+.price-alert-status.flash {
+  animation: price-alert-flash 0.6s ease-in-out 3;
+}
+
+@keyframes price-alert-flash {
+  0%,
+  100% {
+    color: var(--accent-3);
+  }
+  50% {
+    color: var(--accent);
+  }
+}
+
 .card-head {
   display: flex;
   justify-content: space-between;
