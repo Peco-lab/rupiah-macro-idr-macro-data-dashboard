@@ -172,6 +172,46 @@ async function fetchFirstAvailableSeries(symbols, range, interval) {
   return null;
 }
 
+// Fetches BI rate historical data. For now, returns null to trigger fallback.
+// Future: integrate with maintained BI rate source or curated reference table.
+async function fetchBiRateSeries() {
+  try {
+    const endpoint = SOURCE_CONFIG.rate?.endpoint;
+    if (!endpoint || endpoint.includes("example.com")) {
+      return null; // Placeholder endpoint, skip fetch
+    }
+    const response = await fetch(endpoint, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("BI rate fetch failed");
+    }
+    const data = await response.json();
+    return data.series || null;
+  } catch (error) {
+    console.warn("BI rate live fetch unavailable, using sample data", error);
+    return null;
+  }
+}
+
+// Fetches inflation historical data. For now, returns null to trigger fallback.
+// Future: integrate with BPS data or maintained inflation source.
+async function fetchInflationSeries() {
+  try {
+    const endpoint = SOURCE_CONFIG.inflation?.endpoint;
+    if (!endpoint || endpoint.includes("example.com")) {
+      return null; // Placeholder endpoint, skip fetch
+    }
+    const response = await fetch(endpoint, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("Inflation fetch failed");
+    }
+    const data = await response.json();
+    return data.series || null;
+  } catch (error) {
+    console.warn("Inflation live fetch unavailable, using sample data", error);
+    return null;
+  }
+}
+
 async function loadDashboardData() {
   const electronLoader = globalThis.rupiahMacro?.loadDashboardData;
   if (typeof electronLoader === "function") {
@@ -190,9 +230,11 @@ async function loadDashboardData() {
 
     const data = await response.json();
     const fxParams = YAHOO_RANGE_MAP[currentFxRange] || YAHOO_RANGE_MAP["1m"];
-    const [fxMirror, ihsgMirror] = await Promise.all([
+    const [fxMirror, ihsgMirror, biRateLive, inflationLive] = await Promise.all([
       fetchFirstAvailableSeries(SOURCE_CONFIG.fx.symbols, fxParams.range, fxParams.interval),
       fetchFirstAvailableSeries(SOURCE_CONFIG.ihsg.symbols, "1mo", "1d"),
+      fetchBiRateSeries(),
+      fetchInflationSeries(),
     ]);
 
     const sourceNotes = [];
@@ -214,6 +256,21 @@ async function loadDashboardData() {
       sourceNotes.push(`FX live from ${fxMirror.symbol}`);
     }
 
+    if (biRateLive?.length > 0) {
+      data.series.rate = biRateLive;
+      data.snapshot[1] = {
+        ...data.snapshot[1],
+        value: formatters.percent.format(biRateLive.at(-1)[1]) + "%",
+        note: `${SOURCE_CONFIG.rate.label}`,
+      };
+      data.metrics[1] = {
+        ...data.metrics[1],
+        value: formatters.percent.format(biRateLive.at(-1)[1]) + "%",
+        delta: seriesTrendLabel(biRateLive),
+      };
+      sourceNotes.push(`BI rate live from ${SOURCE_CONFIG.rate.label}`);
+    }
+
     if (ihsgMirror?.series) {
       data.series.ihsg = ihsgMirror.series;
       data.snapshot[2] = {
@@ -227,6 +284,21 @@ async function loadDashboardData() {
         delta: seriesTrendLabel(ihsgMirror.series),
       };
       sourceNotes.push(`IHSG live from ${ihsgMirror.symbol}`);
+    }
+
+    if (inflationLive?.length > 0) {
+      data.series.inflation = inflationLive;
+      data.snapshot[3] = {
+        ...data.snapshot[3],
+        value: formatters.percent.format(inflationLive.at(-1)[1]) + "%",
+        note: `${SOURCE_CONFIG.inflation.label}`,
+      };
+      data.metrics[3] = {
+        ...data.metrics[3],
+        value: formatters.percent.format(inflationLive.at(-1)[1]) + "%",
+        delta: seriesTrendLabel(inflationLive),
+      };
+      sourceNotes.push(`Inflation live from ${SOURCE_CONFIG.inflation.label}`);
     }
 
     data.sourceNotes = sourceNotes.length > 0 ? sourceNotes : ["Live mirror sources unavailable; showing fallback data."];

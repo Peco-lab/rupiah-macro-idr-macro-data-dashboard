@@ -29,8 +29,14 @@ The UI is structured so you can replace that file or swap in a live fetch layer 
 
 Wire the data layer to safer production sources:
 
-- Inflation from BPS packages
-- USD/IDR and IHSG from trusted market-data mirrors such as Yahoo Finance
-- BI rate from a maintained policy-rate source or a curated reference table
+- **USD/IDR & IHSG**: Connected to Yahoo Finance mirrors ✓
+- **BI rate**: Live fetch mechanism ready (awaiting maintained source endpoint)
+- **Inflation**: Live fetch mechanism ready (awaiting BPS or CPI source endpoint)
 
-That keeps the project usable today while avoiding brittle direct BI web-service dependencies.
+The dashboard includes adapter functions `fetchBiRateSeries()` and `fetchInflationSeries()` that are ready to accept endpoint configuration. Just replace the placeholder endpoints in `SOURCE_CONFIG` with:
+
+- A maintained BI policy-rate source or curated reference table
+- An Indonesian central bureau (BPS) inflation/CPI endpoint
+
+This keeps the project usable today with sample data while providing a clean integration path for live sources.
+
